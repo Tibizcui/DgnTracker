@@ -1,0 +1,40 @@
+## Interface: 120007, 120005
+## Title: DgnTracker - |cFF9480FFMidnight|r
+## Title-frFR: DgnTracker - |cFF9480FFMidnight|r
+## Notes: Dungeon, Raid, Delve, Torghast entrance tracker. All expansions from Vanilla to Midnight.
+## Notes-frFR: Tracker des entrees d'instances (Donjons, Raids, Gouffres, Torghast) pour toutes les extensions. Vanilla -> Midnight.
+## Author: Tibiscui - Kirin Tor
+## Version: 1.2
+## IconTexture: Interface\AddOns\DgnTracker\medias\DgnTracker
+## SavedVariables: DgnTrackerDB
+
+## AddonCompartmentFunc: DgnTracker_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: DgnTracker_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: DgnTracker_OnAddonCompartmentLeave
+
+## Category: Tracking
+## Category-frFR: Tracking
+
+## OptionalDeps: TomTom
+
+# ----------------------------------------------------------------
+# ICONE MINIMAP - Specs Blizzard
+# Fichier : medias/DgnTracker.tga (64x64, TGA 32-bit, fond transparent)
+# ----------------------------------------------------------------
+
+## Les fichiers data sont charges en premier
+data\Midnight.lua
+data\TheWarWithin.lua
+data\Dragonflight.lua
+data\Shadowlands.lua
+data\BattleForAzeroth.lua
+data\Legion.lua
+data\WarlordsOfDraenor.lua
+data\MistsOfPandaria.lua
+data\Cataclysme.lua
+data\WrathOfTheLichKing.lua
+data\TheBurningCrusade.lua
+data\Vanilla.lua
+
+## Interface principale
+DgnTracker.lua
