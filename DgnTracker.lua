@@ -125,7 +125,7 @@ local function BuildUI()
   -- ================================================================
   -- FENETRE PRINCIPALE
   -- ================================================================
-  mainFrame = CreateFrame("Frame","DTMainFrame",UIParent,"BackdropTemplate")
+  mainFrame = CreateFrame("Frame","DGNMainFrame",UIParent,"BackdropTemplate")
   mainFrame:SetSize(FRAME_W, 600)
   mainFrame:SetFrameStrata("HIGH")
   mainFrame:SetMovable(true)
@@ -177,7 +177,7 @@ local function BuildUI()
   local titleStr = titleBg:CreateFontString(nil,"OVERLAY")
   titleStr:SetFont("Fonts\\FRIZQT__.TTF",12,"OUTLINE")
   titleStr:SetPoint("CENTER",titleBg,"CENTER",0,5)
-  titleStr:SetText("|cFFFFD700Tibi Dgn Tracker|r  |cFF9480FFInstances & Raids|r")
+  titleStr:SetText("|cFFFFD700Dgn Tracker|r  |cFF9480FFInstances & Raids|r")
   logoL:SetPoint("RIGHT",titleStr,"LEFT",-6,0)
   logoR:SetPoint("LEFT",titleStr,"RIGHT",6,0)
 
@@ -772,7 +772,7 @@ local function SetMinimapPos(angle)
 end
 
 local function BuildMinimapButton()
-  minimapBtn = CreateFrame("Button","DTMinimapBtn",Minimap)
+  minimapBtn = CreateFrame("Button","DGNMinimapBtn",Minimap)
   minimapBtn:SetSize(32,32)
   minimapBtn:SetFrameStrata("MEDIUM")
   minimapBtn:SetFrameLevel(8)
@@ -920,7 +920,25 @@ evFrame:SetScript("OnEvent",function(_,event,arg1)
       mainFrame:Show()
       if mainFrame.RefreshContent then mainFrame:RefreshContent() end
     end
+  elseif event=="ADDON_LOADED" and arg1=="TibiSuite" then
+    -- TibiSuite est présent : il gère le bouton minimap unifié
+    if minimapBtn then minimapBtn:Hide() end
+
   elseif event=="PLAYER_LOGIN" then
     print("|cFF4D99FFDgnTracker|r v1.3 chargé -- |cFFFFD700/tdg|r pour ouvrir.")
   end
 end)
+
+-- ================================================================
+-- TOGGLE PUBLIC -- appelé par TibiSuite
+-- ================================================================
+function DgnTracker_Toggle()
+  if mainFrame:IsShown() then
+    mainFrame:Hide()
+    DgnTrackerDB.open = false
+  else
+    mainFrame:Show()
+    mainFrame:RefreshContent()
+    DgnTrackerDB.open = true
+  end
+end

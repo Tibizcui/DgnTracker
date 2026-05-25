@@ -4,7 +4,7 @@
 ## Notes: Dungeon, Raid, Delve, Torghast entrance tracker. All expansions from Vanilla to Midnight.
 ## Notes-frFR: Tracker des entrees d'instances (Donjons, Raids, Gouffres, Torghast) pour toutes les extensions. Vanilla -> Midnight.
 ## Author: Tibiscui - Kirin Tor
-## Version: 1.2
+## Version: 3.0
 ## IconTexture: Interface\AddOns\DgnTracker\medias\DgnTracker
 ## SavedVariables: DgnTrackerDB
 
