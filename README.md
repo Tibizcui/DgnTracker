@@ -22,13 +22,14 @@ All data is organized by expansion, from **Vanilla (1.0)** to **Midnight (12.0)*
 
 ## Features
 
-- 📋 **Complete instance database** — every dungeon, raid, Delve (Gouffre), and Torghast wing across all 12 expansions
+- 📋 **Complete instance database** — every dungeon, raid, Delve (Gouffre), and Torghast wing across all 12 expansions (164 entries)
 - 🗂️ **Expansion tabs** — two rows of quick-access tabs (Midnight → Vanilla) with colour-coded labels per expansion
 - 🔖 **Instance type tabs** — switch between Dungeons, Raids, Delves, and Torghast within each expansion
+- 🔎 **Search box** — filter the current list instantly by instance name
 - 📖 **Accordion layout** — expand/collapse individual instances to read their entrance details and tips
-- 🗺️ **Map pins** — optional map markers for instance entrances (requires **TomTom**)
+- 🗺️ **Waypoints** — right-click an instance (or enable auto mode with `/dg map on`) to drop a route marker. Uses **TomTom** if installed, otherwise falls back to Blizzard's native map waypoint
 - 🧭 **Minimap button** — drag-repositionable minimap icon for instant access; also accessible from the addon compartment button
-- 💾 **Persistent settings** — your last selected expansion, tab, window position, and open/closed state are saved between sessions
+- 💾 **Persistent settings** — your last selected expansion, tab, window position, waypoint mode, and open/closed state are saved between sessions
 - 🌐 **Bilingual UI** — interface labels in both English and French (`frFR`)
 
 ### Expansions covered
@@ -54,12 +55,16 @@ All data is organized by expansion, from **Vanilla (1.0)** to **Midnight (12.0)*
 
 | Command | Description |
 |---|---|
-| `/tdg` | Open / close the Dgn Tracker window |
+| `/dg` | Open / close the Dgn Tracker window |
 | `/tibidgn` | Alias — also opens / closes the window |
-| `/tdg map on` | Enable map pins (requires TomTom) |
-| `/tdg map off` | Disable map pins |
-| `/tdg reset` | Collapse all expanded instance entries |
-| `/tdg help` | Display available commands in chat |
+| `/dg <expansion>` | Jump to an expansion (e.g. `tww`, `df`, `sl`, `bfa`, `van`) |
+| `/dg map on` | Enable automatic waypoint when opening an instance |
+| `/dg map off` | Disable automatic waypoint |
+| `/dg expand` | Expand all instance entries for the active expansion |
+| `/dg reset` | Collapse all expanded instance entries |
+| `/dg help` | Display available commands in chat |
+
+> Tip: right-click any instance header to drop a waypoint immediately, whether or not auto mode is on.
 
 ---
 
@@ -73,7 +78,7 @@ All data is organized by expansion, from **Vanilla (1.0)** to **Midnight (12.0)*
    World of Warcraft\_retail_\Interface\AddOns\DgnTracker
    ```
 3. Launch (or reload) WoW and enable **Dgn Tracker** in the AddOns list on the character selection screen.
-4. Type `/tdg` in-game to open the tracker.
+4. Type `/dg` in-game to open the tracker.
 
 ### CurseForge / Wago Addons
 
@@ -85,9 +90,9 @@ Search for **Dgn Tracker** and install via your preferred addon manager (CurseFo
 
 | Addon | Purpose |
 |---|---|
-| [TomTom](https://www.curseforge.com/wow/addons/tomtom) | Adds waypoint arrows and map pins for instance entrances |
+| [TomTom](https://www.curseforge.com/wow/addons/tomtom) | Adds on-screen waypoint arrows and crazy-taxi navigation for instance entrances |
 
-TomTom is not required to use Dgn Tracker. Map pin features are simply unavailable if TomTom is not installed.
+TomTom is not required. Without it, waypoints fall back to Blizzard's native map marker (`C_Map.SetUserWaypoint`), which still shows on the world map and minimap. TomTom simply adds the floating direction arrow.
 
 ---
 
@@ -117,4 +122,6 @@ This project is licensed under the [MIT License](LICENSE).
 
 **Dgn Tracker** est un addon World of Warcraft qui répertorie toutes les entrées d'instances du jeu : Donjons, Raids, Gouffres (Delves) et Torghast, de Vanilla à Midnight. Pour chaque instance, il indique le continent, la zone, le sous-zone, le chemin d'accès et des conseils pour s'y rendre. L'interface est organisée par extension avec des onglets colorés et un affichage en accordéon. Les marqueurs cartographiques sont disponibles via TomTom.
 
-**Commandes** : `/tdg` pour ouvrir/fermer la fenêtre • `/tdg help` pour l'aide complète.
+Nouveautés v3 : barre de recherche, saut d'extension (`/dg tww`, `/dg df`…), pose de waypoint au clic droit (TomTom ou marqueur natif Blizzard), et recyclage des widgets pour de meilleures performances.
+
+**Commandes** : `/dg` pour ouvrir/fermer la fenêtre • `/dg help` pour l'aide complète.

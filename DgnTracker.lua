@@ -1,5 +1,5 @@
 -- ================================================================
--- DgnTracker v1.3
+-- DgnTracker v3.0
 -- Auteur : Tibiscui - Kirin Tor
 -- ================================================================
 
@@ -13,6 +13,7 @@ DgnTrackerDB = DgnTrackerDB or {
   mmAngle    = 195,
   activeTab  = "dungeon",   -- onglet actif dans la fenêtre (dungeon/raid/delve/torghast/tourment)
   expandedInst = {},
+  mapPins    = false,       -- pose auto d'un waypoint (TomTom/carte) à l'ouverture d'une instance
 }
 
 -- ================================================================
@@ -48,7 +49,7 @@ local EXT_TAB_COLORS = {
   BattleForAzeroth={r=0.85,g=0.25,b=0.25}, Legion={r=0.60,g=0.15,b=0.85},
   WarlordsOfDraenor={r=0.85,g=0.50,b=0.10}, MistsOfPandaria={r=0.20,g=0.65,b=0.45},
   Cataclysme={r=0.95,g=0.35,b=0.10}, WrathOfTheLichKing={r=0.65,g=0.85,b=1.00},
-  TheBurningCrusade={r=0.20,g=0.75,b=0.28},
+  TheBurningCrusade={r=0.20,g=0.75,b=0.28}, Vanilla={r=0.80,g=0.72,b=0.55},
   Torghast={r=0.75,g=0.20,b=0.85},
 }
 
@@ -71,6 +72,53 @@ local INNER_TAB_LABELS = {
 }
 
 local function hex(c) return math.floor((c or 0)*255) end
+
+-- atan2 sécurisé (math.atan2 est déprécié sur les clients récents ;
+-- math.atan(y,x) est la forme moderne). On garde une compat sans risque.
+local atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
+
+-- ================================================================
+-- WAYPOINT (TomTom si présent, sinon waypoint natif Blizzard)
+-- ================================================================
+local function DgnSetWaypoint(inst)
+  if not inst then return end
+  -- Priorité aux coords tomtom dédiées, sinon coords d'affichage
+  local m = (inst.tomtom and inst.tomtom.mapID) or inst.accessMapID or inst.mapID
+  local x = inst.tomtom and inst.tomtom.x or (inst.coords and inst.coords.x)
+  local y = inst.tomtom and inst.tomtom.y or (inst.coords and inst.coords.y)
+  if not (m and x and y) then
+    print("|cFF4D99FFDgnTracker|r : coordonnées indisponibles pour |cFFFFD700"..(inst.name or "?").."|r.")
+    return
+  end
+  local fx, fy = x/100, y/100   -- données en % -> fraction 0..1
+
+  if TomTom and TomTom.AddWaypoint then
+    TomTom:AddWaypoint(m, fx, fy, {
+      title = inst.name,
+      from  = "DgnTracker",
+      persistent = false, minimap = true, world = true,
+    })
+    print("|cFF4D99FFDgnTracker|r : waypoint |cFF88DD88TomTom|r -> |cFFFFD700"..inst.name.."|r")
+    return
+  end
+
+  if C_Map and C_Map.SetUserWaypoint and UiMapPoint and UiMapPoint.CreateFromCoordinates then
+    local ok = pcall(function()
+      C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(m, fx, fy))
+      if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then
+        C_SuperTrack.SetSuperTrackedUserWaypoint(true)
+      end
+    end)
+    if ok then
+      print("|cFF4D99FFDgnTracker|r : waypoint |cFF88DDFFcarte|r -> |cFFFFD700"..inst.name.."|r (ouvrez la carte pour le voir)")
+    else
+      print("|cFF4D99FFDgnTracker|r : impossible de poser un waypoint natif sur cette zone. Installez |cFFFFD700TomTom|r pour un pointeur complet.")
+    end
+    return
+  end
+
+  print("|cFF4D99FFDgnTracker|r : aucun système de waypoint disponible. Installez |cFFFFD700TomTom|r.")
+end
 
 -- Torghast virtual tab : pioche les données type=torghast dans Shadowlands
 local function GetTorghastInstances()
@@ -138,7 +186,12 @@ local function BuildUI()
     DgnTrackerDB.pos = {point=point,x=x,y=y}
   end)
   mainFrame:SetScript("OnKeyDown", function(self,key)
-    if key=="ESCAPE" then self:Hide(); DgnTrackerDB.open=false end
+    if key=="ESCAPE" then
+      self:SetPropagateKeyboardInput(false)  -- ESC ne ferme QUE notre fenêtre
+      self:Hide(); DgnTrackerDB.open=false
+    else
+      self:SetPropagateKeyboardInput(true)   -- laisse passer les autres touches
+    end
   end)
   mainFrame:EnableKeyboard(true)
   mainFrame:SetPropagateKeyboardInput(true)
@@ -376,6 +429,30 @@ local function BuildUI()
     ix = ix + innerTabW + innerTabGap
   end
 
+  -- ================================================================
+  -- BARRE DE RECHERCHE (filtre par nom d'instance)
+  -- ================================================================
+  local searchBox = CreateFrame("EditBox", nil, mainFrame, "InputBoxTemplate")
+  searchBox:SetSize(150, 20)
+  searchBox:SetPoint("TOPRIGHT", mainFrame, "TOPRIGHT", -30, innerTabY - 1)
+  searchBox:SetAutoFocus(false)
+  searchBox:SetFontObject("GameFontHighlightSmall")
+  searchBox:SetMaxLetters(40)
+  mainFrame.searchBox  = searchBox
+  mainFrame.searchText = ""
+  local searchHint = searchBox:CreateFontString(nil,"OVERLAY","GameFontDisableSmall")
+  searchHint:SetPoint("LEFT", searchBox, "LEFT", 4, 0)
+  searchHint:SetText("Rechercher...")
+  searchBox.hint = searchHint
+  searchBox:SetScript("OnTextChanged", function(s)
+    local t = s:GetText() or ""
+    s.hint:SetShown(t == "")
+    mainFrame.searchText = t:lower():gsub("^%s*(.-)%s*$","%1")
+    if mainFrame.RefreshContent then mainFrame:RefreshContent() end
+  end)
+  searchBox:SetScript("OnEscapePressed", function(s) s:SetText(""); s:ClearFocus() end)
+  searchBox:SetScript("OnEnterPressed",  function(s) s:ClearFocus() end)
+
   -- Séparateur sous les onglets internes
   local sepInner = mainFrame:CreateTexture(nil,"ARTWORK")
   sepInner:SetTexture("Interface\\BUTTONS\\WHITE8X8")
@@ -514,64 +591,163 @@ local function BuildUI()
       end
     end
 
-    -- ── Nettoyer anciens widgets ─────────────────────────────────
-    for _,f in ipairs(self.instanceFrames or {}) do f:Hide() end
-    self.instanceFrames = {}
+    -- ── Pools de widgets recyclables (évite la fuite mémoire) ────
+    self.headerPool = self.headerPool or {}
+    self.detailPool = self.detailPool or {}
+
+    local BACKDROP = {
+      bgFile="Interface\\ChatFrame\\ChatFrameBackground",
+      edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",
+      tile=true, tileSize=8, edgeSize=5,
+      insets={left=1,right=1,top=1,bottom=1},
+    }
+
+    local function AcquireHeader(i)
+      local h = self.headerPool[i]
+      if h then return h end
+      h = CreateFrame("Button",nil,self.scrollChild,"BackdropTemplate")
+      h:SetBackdrop(BACKDROP)
+      h:RegisterForClicks("LeftButtonUp","RightButtonUp")
+      h.toggle = h:CreateFontString(nil,"OVERLAY")
+      h.toggle:SetFont("Fonts\\FRIZQT__.TTF",16,"OUTLINE")
+      h.toggle:SetPoint("LEFT",h,"LEFT",8,0)
+      h.toggle:SetSize(16,16)
+      h.nameFS = h:CreateFontString(nil,"OVERLAY")
+      h.nameFS:SetFont("Fonts\\FRIZQT__.TTF",11,"OUTLINE")
+      h.nameFS:SetPoint("LEFT",h,"LEFT",28,0)
+      h.nameFS:SetPoint("RIGHT",h,"RIGHT",-90,0)
+      h.nameFS:SetJustifyH("LEFT")
+      h.nameFS:SetWordWrap(false)
+      h.zoneFS = h:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+      h.zoneFS:SetPoint("BOTTOMRIGHT",h,"BOTTOMRIGHT",-8,5)
+      h.zoneFS:SetJustifyH("RIGHT")
+      h:SetScript("OnClick",function(s, button)
+        local inst = s.inst
+        if not inst then return end
+        if button == "RightButton" then
+          DgnSetWaypoint(inst)
+          return
+        end
+        local nowOpen = not DgnTrackerDB.expandedInst[inst.name]
+        DgnTrackerDB.expandedInst[inst.name] = nowOpen
+        if nowOpen and DgnTrackerDB.mapPins then DgnSetWaypoint(inst) end
+        mainFrame:RefreshContent()
+      end)
+      h:SetScript("OnEnter",function(s)
+        local tc = s.tc or {r=0.5,g=0.5,b=0.5}
+        if s.inst and not DgnTrackerDB.expandedInst[s.inst.name] then
+          s:SetBackdropBorderColor(tc.r*0.7,tc.g*0.7,tc.b*0.7,0.9)
+        end
+        if not s.inst then return end
+        GameTooltip:SetOwner(s,"ANCHOR_BOTTOMRIGHT")
+        GameTooltip:AddLine(s.inst.name,1,0.84,0)
+        GameTooltip:AddLine("|cFFFFD700Clic gauche|r : "..(DgnTrackerDB.expandedInst[s.inst.name] and "fermer" or "afficher le chemin"),0.7,0.7,0.7)
+        GameTooltip:AddLine("|cFFFFD700Clic droit|r : poser un point de route (waypoint)",0.7,0.7,0.7)
+        GameTooltip:Show()
+      end)
+      h:SetScript("OnLeave",function(s)
+        local tc = s.tc or {r=0.5,g=0.5,b=0.5}
+        if s.inst and not DgnTrackerDB.expandedInst[s.inst.name] then
+          s:SetBackdropBorderColor(tc.r*0.40,tc.g*0.40,tc.b*0.40,0.65)
+        end
+        GameTooltip:Hide()
+      end)
+      self.headerPool[i] = h
+      return h
+    end
+
+    local function AcquireDetail(i)
+      local d = self.detailPool[i]
+      if d then return d end
+      d = CreateFrame("Frame",nil,self.scrollChild,"BackdropTemplate")
+      d:SetBackdrop(BACKDROP)
+      d.fsBC = d:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+      d.fsBC:SetJustifyH("LEFT"); d.fsBC:SetWordWrap(false); d.fsBC:SetHeight(14)
+      d.lbA = d:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+      d.fsA = d:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+      d.fsA:SetJustifyH("LEFT"); d.fsA:SetWordWrap(true)
+      d.lbP = d:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+      d.fsP = d:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+      d.fsP:SetJustifyH("LEFT"); d.fsP:SetWordWrap(true)
+      self.detailPool[i] = d
+      return d
+    end
 
     -- ── Sélection de la liste d'instances ───────────────────────
-    local instList = {}
+    local rawList = {}
     if extKey == "Torghast" or (extKey == "Shadowlands" and activeTab == "torghast") then
-      instList = GetTorghastInstances()
+      rawList = GetTorghastInstances()
     else
       local extD = DgnTrackerData[extKey]
       if extD and extD.instances then
         for _, inst in ipairs(extD.instances) do
           if inst.type == activeTab then
-            table.insert(instList, inst)
+            table.insert(rawList, inst)
           end
         end
       end
     end
 
-    if #instList == 0 then
-      self.scrollChild:SetHeight(100)
-      -- Message vide
-      local emptyLbl = self.scrollChild:CreateFontString(nil,"OVERLAY","GameFontNormal")
-      emptyLbl:SetPoint("CENTER",self.scrollChild,"CENTER")
-      emptyLbl:SetText("|cFF666666Aucune instance disponible pour cette catégorie.|r")
-      table.insert(self.instanceFrames, emptyLbl)
-      self:SetHeight(math.max(COL_CONTENT_H + 70, 400))
-      return
+    -- ── Filtre de recherche par nom ─────────────────────────────
+    local filter = self.searchText or ""
+    local instList = {}
+    if filter ~= "" then
+      for _, inst in ipairs(rawList) do
+        if inst.name and inst.name:lower():find(filter, 1, true) then
+          table.insert(instList, inst)
+        end
+      end
+    else
+      instList = rawList
     end
-
-    -- ============================================================
-    -- ACCORDION
-    -- ============================================================
-    local rowW   = self.scrollChild:GetWidth() - 6
-    local curY   = 0
-    local HEADER_H = 38
-    local GAP    = 3
 
     if not DgnTrackerDB.expandedInst then
       DgnTrackerDB.expandedInst = {}
     end
 
+    -- ── Cas liste vide ───────────────────────────────────────────
+    if #instList == 0 then
+      -- Masquer tous les widgets recyclés
+      for _,h in ipairs(self.headerPool) do h:Hide() end
+      for _,d in ipairs(self.detailPool) do d:Hide() end
+      if not self.emptyLbl then
+        self.emptyLbl = self.scrollChild:CreateFontString(nil,"OVERLAY","GameFontNormal")
+        self.emptyLbl:SetPoint("CENTER",self.scrollChild,"CENTER",0,-30)
+      end
+      if filter ~= "" then
+        self.emptyLbl:SetText("|cFF666666Aucun résultat pour|r |cFFFFD700"..filter.."|r|cFF666666.|r")
+      else
+        self.emptyLbl:SetText("|cFF666666Aucune instance disponible pour cette catégorie.|r")
+      end
+      self.emptyLbl:Show()
+      self.scrollChild:SetHeight(100)
+      self:SetHeight(math.max(COL_CONTENT_H + 70, 400))
+      return
+    end
+    if self.emptyLbl then self.emptyLbl:Hide() end
+
+    -- ============================================================
+    -- ACCORDION (widgets recyclés)
+    -- ============================================================
+    local rowW   = self.scrollChild:GetWidth() - 6
+    local curY   = 0
+    local HEADER_H = 38
+    local GAP    = 3
+    local hIdx, dIdx = 0, 0
+
     for _, inst in ipairs(instList) do
       local tc    = TYPE_COLORS[inst.type] or {r=0.5,g=0.5,b=0.5}
-      local tlbl  = TYPE_LABELS[inst.type] or inst.type
       local isOpen= DgnTrackerDB.expandedInst[inst.name] == true
 
       -- ── HEADER ──────────────────────────────────────────────
-      local hdr = CreateFrame("Button",nil,self.scrollChild,"BackdropTemplate")
+      hIdx = hIdx + 1
+      local hdr = AcquireHeader(hIdx)
+      hdr.inst = inst
+      hdr.tc   = tc
+      hdr:ClearAllPoints()
       hdr:SetPoint("TOPLEFT",0,-curY)
       hdr:SetWidth(rowW)
       hdr:SetHeight(HEADER_H)
-      hdr:SetBackdrop({
-        bgFile="Interface\\ChatFrame\\ChatFrameBackground",
-        edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",
-        tile=true, tileSize=8, edgeSize=5,
-        insets={left=1,right=1,top=1,bottom=1},
-      })
       if isOpen then
         hdr:SetBackdropColor(tc.r*0.18,tc.g*0.18,tc.b*0.18,0.98)
         hdr:SetBackdropBorderColor(tc.r,tc.g,tc.b,0.95)
@@ -579,61 +755,16 @@ local function BuildUI()
         hdr:SetBackdropColor(tc.r*0.07,tc.g*0.07,tc.b*0.07,0.95)
         hdr:SetBackdropBorderColor(tc.r*0.40,tc.g*0.40,tc.b*0.40,0.65)
       end
-      table.insert(self.instanceFrames, hdr)
-
-      -- Bouton +/- (remplace accent bar + flèche)
-      local toggleBtn = hdr:CreateFontString(nil,"OVERLAY")
-      toggleBtn:SetFont("Fonts\\FRIZQT__.TTF",16,"OUTLINE")
-      toggleBtn:SetPoint("LEFT",hdr,"LEFT",8,0)
-      toggleBtn:SetSize(16,16)
-      if isOpen then
-        toggleBtn:SetText(string.format("|cFF%02X%02X%02X-|r",hex(tc.r),hex(tc.g),hex(tc.b)))
-      else
-        toggleBtn:SetText(string.format("|cFF%02X%02X%02X+|r",hex(tc.r),hex(tc.g),hex(tc.b)))
-      end
-
-      -- Nom instance (directement, sans badge type)
-      local nameFS = hdr:CreateFontString(nil,"OVERLAY")
-      nameFS:SetFont("Fonts\\FRIZQT__.TTF",11,"OUTLINE")
-      nameFS:SetPoint("LEFT",hdr,"LEFT",28,0)
-      nameFS:SetPoint("RIGHT",hdr,"RIGHT",-90,0)
-      nameFS:SetJustifyH("LEFT")
-      nameFS:SetWordWrap(false)
-      local nameColor = isOpen and "|cFFFFD700" or "|cFFDDCC88"
-      nameFS:SetText(nameColor..inst.name.."|r")
-
-      -- Zone + coords (droite)
-      local zoneFS = hdr:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-      zoneFS:SetPoint("BOTTOMRIGHT",hdr,"BOTTOMRIGHT",-8,5)
-      zoneFS:SetJustifyH("RIGHT")
+      hdr.toggle:SetText(string.format("|cFF%02X%02X%02X%s|r",
+        hex(tc.r),hex(tc.g),hex(tc.b), isOpen and "-" or "+"))
+      hdr.nameFS:SetText((isOpen and "|cFFFFD700" or "|cFFDDCC88")..inst.name.."|r")
       if inst.coords then
-        zoneFS:SetText(string.format("|cFF888888%s|r  |cFF99CCFF%.1f, %.1f|r",
-          inst.zone, inst.coords.x, inst.coords.y))
+        hdr.zoneFS:SetText(string.format("|cFF888888%s|r  |cFF99CCFF%.1f, %.1f|r",
+          inst.zone or "", inst.coords.x, inst.coords.y))
       else
-        zoneFS:SetText("|cFF888888"..inst.zone.."|r")
+        hdr.zoneFS:SetText("|cFF888888"..(inst.zone or "").."|r")
       end
-
-      local instRef = inst
-      hdr:SetScript("OnClick",function()
-        DgnTrackerDB.expandedInst[instRef.name] = not DgnTrackerDB.expandedInst[instRef.name]
-        mainFrame:RefreshContent()
-      end)
-      hdr:SetScript("OnEnter",function(s)
-        if not DgnTrackerDB.expandedInst[instRef.name] then
-          s:SetBackdropBorderColor(tc.r*0.7,tc.g*0.7,tc.b*0.7,0.9)
-        end
-        GameTooltip:SetOwner(s,"ANCHOR_BOTTOMRIGHT")
-        GameTooltip:AddLine(instRef.name,1,0.84,0)
-        GameTooltip:AddLine("Clic pour "..(DgnTrackerDB.expandedInst[instRef.name] and "fermer" or "afficher le chemin"),0.7,0.7,0.7)
-        GameTooltip:Show()
-      end)
-      hdr:SetScript("OnLeave",function(s)
-        if not DgnTrackerDB.expandedInst[instRef.name] then
-          s:SetBackdropBorderColor(tc.r*0.40,tc.g*0.40,tc.b*0.40,0.65)
-        end
-        GameTooltip:Hide()
-      end)
-
+      hdr:Show()
       curY = curY + HEADER_H + GAP
 
       -- ── DETAIL (déplié) ────────────────────────────────────
@@ -658,33 +789,22 @@ local function BuildUI()
         end
         local lA = nLines(accessText)
         local lP = nLines(pathText)
-        local detH = 16          -- breadcrumb région
-                   + 14 + lA*15 + 8   -- accès
-                   + 14 + lP*15 + 14  -- conseils + padding bas
+        local detH = 16 + 14 + lA*15 + 8 + 14 + lP*15 + 14
 
-        local det = CreateFrame("Frame",nil,self.scrollChild,"BackdropTemplate")
+        dIdx = dIdx + 1
+        local det = AcquireDetail(dIdx)
+        det:ClearAllPoints()
         det:SetPoint("TOPLEFT",0,-curY)
         det:SetWidth(rowW)
         det:SetHeight(detH)
-        det:SetBackdrop({
-          bgFile="Interface\\ChatFrame\\ChatFrameBackground",
-          edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",
-          tile=true, tileSize=8, edgeSize=5,
-          insets={left=1,right=1,top=1,bottom=1},
-        })
         det:SetBackdropColor(tc.r*0.05,tc.g*0.05,tc.b*0.05,0.97)
         det:SetBackdropBorderColor(tc.r*0.60,tc.g*0.60,tc.b*0.60,0.7)
-        table.insert(self.instanceFrames, det)
 
         local iX,iY = 14,-6
 
-        -- ── Fil d'Ariane : Région > Zone > Nom ──────────────────
-        local extFull2 = EXT_FULLNAMES[extKey] or extKey
-        local breadcrumb = ""
-        -- Construit le fil d'Ariane avec les niveaux disponibles
-        -- Format : Extension > Région > Secteur > Zone > Nom
+        -- Fil d'Ariane : Extension > Région > Secteur > Zone > Nom
         local parts = {}
-        table.insert(parts, string.format("|cFF666666%s|r", extFull2))
+        table.insert(parts, string.format("|cFF666666%s|r", EXT_FULLNAMES[extKey] or extKey))
         if inst.region and inst.region ~= "" then
           table.insert(parts, string.format("|cFFAA8855%s|r", inst.region))
         end
@@ -695,56 +815,51 @@ local function BuildUI()
           table.insert(parts, string.format("|cFF99CCFF%s|r", inst.zone))
         end
         table.insert(parts, string.format("|cFFDDCC88%s|r", inst.name))
-        -- Séparateur ">"
-        breadcrumb = table.concat(parts, " |cFF555555>|r ")
-        local fsBC = det:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-        fsBC:SetPoint("TOPLEFT",det,"TOPLEFT",iX,iY)
-        fsBC:SetPoint("TOPRIGHT",det,"TOPRIGHT",-8,iY)
-        fsBC:SetHeight(14)
-        fsBC:SetJustifyH("LEFT")
-        fsBC:SetWordWrap(false)
-        fsBC:SetText(breadcrumb)
+        det.fsBC:ClearAllPoints()
+        det.fsBC:SetPoint("TOPLEFT",det,"TOPLEFT",iX,iY)
+        det.fsBC:SetPoint("TOPRIGHT",det,"TOPRIGHT",-8,iY)
+        det.fsBC:SetText(table.concat(parts, " |cFF555555>|r "))
         iY = iY - 18
 
-        -- ── Accès ────────────────────────────────────────────────
-        local lbA = det:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-        lbA:SetPoint("TOPLEFT",det,"TOPLEFT",iX,iY)
-        lbA:SetText(string.format("|cFF%02X%02X%02X-- Accès (chemin le plus court) :|r",
+        -- Accès
+        det.lbA:ClearAllPoints()
+        det.lbA:SetPoint("TOPLEFT",det,"TOPLEFT",iX,iY)
+        det.lbA:SetText(string.format("|cFF%02X%02X%02X-- Accès (chemin le plus court) :|r",
           hex(tc.r),hex(tc.g),hex(tc.b)))
         iY = iY - 15
-        local fsA = det:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-        fsA:SetPoint("TOPLEFT",det,"TOPLEFT",iX+6,iY)
-        fsA:SetPoint("TOPRIGHT",det,"TOPRIGHT",-14,iY)
-        fsA:SetHeight(lA*15+4)
-        fsA:SetJustifyH("LEFT")
-        fsA:SetWordWrap(true)
-        fsA:SetText(ColorizeAccess(accessText))
+        det.fsA:ClearAllPoints()
+        det.fsA:SetPoint("TOPLEFT",det,"TOPLEFT",iX+6,iY)
+        det.fsA:SetPoint("TOPRIGHT",det,"TOPRIGHT",-14,iY)
+        det.fsA:SetHeight(lA*15+4)
+        det.fsA:SetText(ColorizeAccess(accessText))
         iY = iY - lA*15 - 8
 
-        -- ── Conseils ─────────────────────────────────────────────
-        local lbP = det:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-        lbP:SetPoint("TOPLEFT",det,"TOPLEFT",iX,iY)
-        lbP:SetText(string.format("|cFF%02X%02X%02X-- Conseils :|r",
+        -- Conseils
+        det.lbP:ClearAllPoints()
+        det.lbP:SetPoint("TOPLEFT",det,"TOPLEFT",iX,iY)
+        det.lbP:SetText(string.format("|cFF%02X%02X%02X-- Conseils :|r",
           hex(tc.r),hex(tc.g),hex(tc.b)))
         iY = iY - 15
-        local fsP = det:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-        fsP:SetPoint("TOPLEFT",det,"TOPLEFT",iX+6,iY)
-        fsP:SetPoint("TOPRIGHT",det,"TOPRIGHT",-14,iY)
-        fsP:SetHeight(lP*15+4)
-        fsP:SetJustifyH("LEFT")
-        fsP:SetWordWrap(true)
-        fsP:SetText(ColorizePath(pathText))
+        det.fsP:ClearAllPoints()
+        det.fsP:SetPoint("TOPLEFT",det,"TOPLEFT",iX+6,iY)
+        det.fsP:SetPoint("TOPRIGHT",det,"TOPRIGHT",-14,iY)
+        det.fsP:SetHeight(lP*15+4)
+        det.fsP:SetText(ColorizePath(pathText))
 
+        det:Show()
         curY = curY + detH + GAP
       end
     end
+
+    -- Masquer les widgets recyclés non utilisés ce cycle
+    for i = hIdx+1, #self.headerPool do self.headerPool[i]:Hide() end
+    for i = dIdx+1, #self.detailPool do self.detailPool[i]:Hide() end
 
     self.scrollChild:SetHeight(math.max(curY + 10, 100))
 
     -- Auto-resize fenêtre
     local newH = math.max(COL_CONTENT_H + 70, math.min(curY + 200, 900), 400)
     self:SetHeight(newH)
-    -- Ajuste la hauteur du tabColBg pour coller à la fenêtre
     if self.tabColBg then
       self.tabColBg:SetHeight(newH - 64)
     end
@@ -813,7 +928,7 @@ local function BuildMinimapButton()
       local mx,my = Minimap:GetCenter()
       local sc = UIParent:GetEffectiveScale()
       local cx,cy = GetCursorPosition()
-      SetMinimapPos(math.deg(math.atan2((cy/sc)-my,(cx/sc)-mx)))
+      SetMinimapPos(math.deg(atan2((cy/sc)-my,(cx/sc)-mx)))
     end)
   end)
   minimapBtn:SetScript("OnDragStop",function(s) s:SetScript("OnUpdate",nil) end)
@@ -872,23 +987,71 @@ function DgnTracker_OnAddonCompartmentLeave() GameTooltip:Hide() end
 -- ================================================================
 -- COMMANDES SLASH
 -- ================================================================
-SLASH_DGNTRACKER1 = "/tdg"
+SLASH_DGNTRACKER1 = "/dg"
 SLASH_DGNTRACKER2 = "/tibidgn"
 SlashCmdList["DGNTRACKER"] = function(msg)
   msg = (msg or ""):lower():gsub("^%s*(.-)%s*$","%1")
+
   if msg=="help" or msg=="aide" then
     print("|cFF4D99FFDgnTracker|r commandes :")
-    print("  |cFFFFD700/tdg|r         - Ouvrir/fermer la fenêtre")
-    print("  |cFFFFD700/tdg map on|r  - Activer les pins carte")
-    print("  |cFFFFD700/tdg map off|r - Désactiver les pins carte")
-    print("  |cFFFFD700/tdg reset|r   - Tout replier (accordéon)")
+    print("  |cFFFFD700/dg|r           - Ouvrir/fermer la fenêtre")
+    print("  |cFFFFD700/dg map on|r    - Waypoint auto à l'ouverture d'une instance")
+    print("  |cFFFFD700/dg map off|r   - Désactiver le waypoint auto")
+    print("  |cFFFFD700/dg <extension>|r - Aller à une extension (ex : tww, df, sl, van)")
+    print("  |cFFFFD700/dg expand|r    - Tout déplier (extension active)")
+    print("  |cFFFFD700/dg reset|r     - Tout replier (accordéon)")
+    print("  |cFF888888Astuce : clic droit sur une instance = poser un waypoint.|r")
     return
+
   elseif msg=="reset" then
     DgnTrackerDB.expandedInst = {}
     if mainFrame:IsShown() then mainFrame:RefreshContent() end
-    print("|cFF4D99FFDgnTracker|r : Accordéon réinitialisé.")
+    print("|cFF4D99FFDgnTracker|r : accordéon réinitialisé.")
+    return
+
+  elseif msg=="expand" or msg=="all" then
+    local ext = DgnTrackerDB.extension or "TheWarWithin"
+    local ed = DgnTrackerData[ext]
+    if ed and ed.instances then
+      for _, inst in ipairs(ed.instances) do
+        DgnTrackerDB.expandedInst[inst.name] = true
+      end
+    end
+    if not mainFrame:IsShown() then mainFrame:Show(); DgnTrackerDB.open=true end
+    mainFrame:RefreshContent()
+    print("|cFF4D99FFDgnTracker|r : tout déplié pour |cFFFFD700"..(EXT_FULLNAMES[ext] or ext).."|r.")
+    return
+
+  elseif msg=="map on" or msg=="mapon" then
+    DgnTrackerDB.mapPins = true
+    print("|cFF4D99FFDgnTracker|r : waypoint auto |cFF88DD88activé|r (à l'ouverture d'une instance).")
+    return
+  elseif msg=="map off" or msg=="mapoff" then
+    DgnTrackerDB.mapPins = false
+    print("|cFF4D99FFDgnTracker|r : waypoint auto |cFFFF8888désactivé|r.")
     return
   end
+
+  -- Saut d'extension : /dg tww, /dg df, /dg sl, /dg van, etc.
+  if msg ~= "" then
+    local target = nil
+    for key, abbr in pairs(EXT_LABELS) do
+      if msg == abbr:lower() or msg == key:lower() then target = key; break end
+    end
+    if target and DgnTrackerData[target] then
+      DgnTrackerDB.extension = target
+      DgnTrackerDB.activeTab = "dungeon"
+      if not mainFrame:IsShown() then mainFrame:Show(); DgnTrackerDB.open=true end
+      mainFrame:RefreshContent()
+      print("|cFF4D99FFDgnTracker|r : extension -> |cFFFFD700"..(EXT_FULLNAMES[target] or target).."|r")
+      return
+    elseif not (msg=="map on" or msg=="map off") then
+      print("|cFF4D99FFDgnTracker|r : commande inconnue. Tapez |cFFFFD700/dg help|r.")
+      return
+    end
+  end
+
+  -- Sans argument : toggle fenêtre
   if mainFrame:IsShown() then
     mainFrame:Hide(); DgnTrackerDB.open=false
   else
@@ -922,7 +1085,7 @@ evFrame:SetScript("OnEvent",function(_,event,arg1)
     if minimapBtn then minimapBtn:Hide() end
 
   elseif event=="PLAYER_LOGIN" then
-    print("|cFF4D99FFDgnTracker|r v1.3 chargé -- |cFFFFD700/tdg|r pour ouvrir.")
+    print("|cFF4D99FFDgnTracker|r v3.0 chargé -- |cFFFFD700/dg|r pour ouvrir.")
   end
 end)
 
